@@ -7,6 +7,12 @@ import java.lang.annotation.Target;
 
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.SOURCE)
-public @interface ToggleOff {
-    String toggleName = "";
+public @interface Toggle {
+    String value();
+    ToggleState state() default ToggleState.ON;
+
+    enum ToggleState {
+        ON,
+        OFF
+    }
 }
