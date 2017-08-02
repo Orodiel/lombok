@@ -246,6 +246,15 @@ lombok.launch.AnnotationProcessorHider$ClaimingProcessor</echo>
 			<property name="lombok.fullversion" value="${lombok.fullversion}" />
 		</ant>
 	</target>
+
+	<target name="dist + delombok" depends="dist">
+		<java jar="dist/lombok.jar" fork="true" failonerror="true">
+			<arg value="delombok"/>
+			<arg value="test-input"/>
+			<arg value="-d"/>
+			<arg value="test-output"/>
+		</java>
+	</target>
 	
 	<target name="dist" description="Builds THE lombok.jar file which contains everything." depends="version, compile, -latestChanges">
 		<mkdir dir="dist" />
