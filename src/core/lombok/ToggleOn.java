@@ -9,4 +9,8 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 public @interface ToggleOn {
     String value();
+    String groupName() default "";
+    boolean removeProxyAnnotations() default false;
+    boolean removeDelegateAnnotations() default true;
+    boolean makeDelegatePackagePrivate() default false;
 }
