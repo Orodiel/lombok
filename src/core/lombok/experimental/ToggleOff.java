@@ -1,4 +1,4 @@
-package lombok;
+package lombok.experimental;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -9,4 +9,8 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 public @interface ToggleOff {
     String value();
+    String groupName() default "";
+    boolean removeProxyAnnotations() default false;
+    boolean removeDelegateAnnotations() default true;
+    boolean makeDelegatePackagePrivate() default false;
 }
