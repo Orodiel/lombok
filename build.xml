@@ -297,6 +297,16 @@ lombok.launch.AnnotationProcessorHider$ClaimingProcessor</echo>
 		<property name="lombok.dist.built" value="true" />
 	</target>
 
+	<target name="dist + debug delombok" depends="dist">
+		<java jar="dist/lombok-${lombok.version}.jar" fork="true" failonerror="true">
+			<jvmarg value="-Xdebug"/>
+			<jvmarg value="-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=7777"/>
+			<arg value="delombok" />
+			<arg value="test-input" />
+			<arg value="-d" />
+			<arg value="test-output" />
+		</java>
+	</target>
 	<target name="dist + delombok" depends="dist">
 		<java jar="dist/lombok-${lombok.version}.jar" fork="true" failonerror="true">
 			<arg value="delombok" />

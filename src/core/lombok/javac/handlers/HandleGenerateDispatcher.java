@@ -1,12 +1,13 @@
 package lombok.javac.handlers;
 
 import com.sun.tools.javac.code.Flags;
+import com.sun.tools.javac.tree.JCTree.JCMethodInvocation;
+import com.sun.tools.javac.tree.JCTree.JCPrimitiveTypeTree;
 import com.sun.tools.javac.tree.JCTree.JCAnnotation;
 import com.sun.tools.javac.tree.JCTree.JCBinary;
 import com.sun.tools.javac.tree.JCTree.JCBlock;
 import com.sun.tools.javac.tree.JCTree.JCExpression;
 import com.sun.tools.javac.tree.JCTree.JCMethodDecl;
-import com.sun.tools.javac.tree.JCTree.JCMethodInvocation;
 import com.sun.tools.javac.tree.JCTree.JCModifiers;
 import com.sun.tools.javac.tree.JCTree.JCStatement;
 import com.sun.tools.javac.tree.JCTree.JCVariableDecl;
@@ -20,6 +21,7 @@ import lombok.javac.JavacNode;
 import lombok.javac.JavacTreeMaker;
 import org.mangosdk.spi.ProviderFor;
 
+import javax.lang.model.type.TypeKind;
 import java.util.ArrayList;
 import java.util.Collection;
 
@@ -27,7 +29,7 @@ import static lombok.javac.Javac.*;
 import static lombok.javac.handlers.JavacHandlerUtil.*;
 
 @ProviderFor(JavacAnnotationHandler.class)
-public class HandleSwitchConfiguration extends JavacAnnotationHandler<GenerateDispatcher> {
+public class HandleGenerateDispatcher extends JavacAnnotationHandler<GenerateDispatcher> {
     public static final String EVALUATION_METHOD_NAME = "__evaluateSwitch";
     private JavacNode annotatedNode;
     private JavacNode classNode;
@@ -104,7 +106,7 @@ public class HandleSwitchConfiguration extends JavacAnnotationHandler<GenerateDi
     }
 
     private void removeAnnotations(JCMethodDecl method) {
-        method.mods.annotations = List.nil();
+        method.mods = treeMaker.Modifiers(method.mods.flags, List.<JCAnnotation>nil());
     }
 
     private void addMethodToClass(JCMethodDecl method) {
@@ -113,7 +115,6 @@ public class HandleSwitchConfiguration extends JavacAnnotationHandler<GenerateDi
 
     private JCMethodDecl setupDispatcherMethod() {
         String dispatcherMethodName = generateDispatcherName(annotation);
-        JavacNode classNode = annotatedNode.up();
         JCMethodDecl dispatcherMethod = findMethodByName(dispatcherMethodName);
         if (dispatcherMethod == null) {
             dispatcherMethod = generateDispatcherMethod(dispatcherMethodName);
@@ -164,9 +165,9 @@ public class HandleSwitchConfiguration extends JavacAnnotationHandler<GenerateDi
         JCExpression runtimeExceptionType = genTypeRef(annotatedNode, exceptionClass);
         JCExpression expression = treeMaker.NewClass(
                 null,
-                List.nil(),
+                List.<JCExpression>nil(),
                 runtimeExceptionType,
-                List.of(treeMaker.Literal(exceptionMessage)),
+                List.<JCExpression>of(treeMaker.Literal(exceptionMessage)),
                 null);
         return treeMaker.Throw(expression);
     }
@@ -215,9 +216,9 @@ public class HandleSwitchConfiguration extends JavacAnnotationHandler<GenerateDi
 
     private JCStatement generateSwitchInitialization(JCMethodDecl evaluationMethod, String switchName, String variableName) {
         JCMethodInvocation toggleStateEvaluationInvocation = treeMaker.Apply(
-                List.nil(),
+                List.<JCExpression>nil(),
                 treeMaker.Ident(evaluationMethod.name),
-                List.of(treeMaker.Literal(switchName))
+                List.<JCExpression>of(treeMaker.Literal(switchName))
         );
 
         return treeMaker.VarDef(
@@ -239,16 +240,22 @@ public class HandleSwitchConfiguration extends JavacAnnotationHandler<GenerateDi
     }
 
     private JCStatement generateSwitchExecution(JCMethodDecl targetMethod) {
-        if (!targetMethod.restype.toString().equals("void")) {
-            return treeMaker.Return(
-                    treeMaker.Apply(
-                            List.nil(),
-                            treeMaker.Ident(targetMethod.name),
-                            generateArgList(targetMethod.params)
-                    )
-            );
+        JCMethodInvocation targetMethodInvocation = treeMaker.Apply(
+                List.<JCExpression>nil(),
+                treeMaker.Ident(targetMethod.name),
+                generateArgList(targetMethod.params)
+        );
+        if (targetMethod.restype instanceof JCPrimitiveTypeTree &&
+                ((JCPrimitiveTypeTree) targetMethod.restype).getPrimitiveTypeKind() == TypeKind.VOID) {
+            return treeMaker.Block(
+                    0,
+                    List.of(
+                            treeMaker.Exec(targetMethodInvocation),
+                            treeMaker.Return(null)
+                    ));
+        } else {
+            return treeMaker.Return(targetMethodInvocation);
         }
-        throw new RuntimeException("Procedures aren't supported yet");
     }
 
     private JCExpression generateEqualityCheck(String variableName, String value) {
@@ -261,9 +268,9 @@ public class HandleSwitchConfiguration extends JavacAnnotationHandler<GenerateDi
 
     private JCMethodInvocation generateSwitchEqualityCheck(String variableName, String value) {
         return treeMaker.Apply(
-                List.nil(),
+                List.<JCExpression>nil(),
                 treeMaker.Select(treeMaker.Literal(value), classNode.toName("equals")),
-                List.of(treeMaker.Ident(annotatedNode.toName(variableName))));
+                List.<JCExpression>of(treeMaker.Ident(annotatedNode.toName(variableName))));
     }
 
     private JCBinary generateToggleEqualityCheck(String variableName, boolean value) {
@@ -282,7 +289,7 @@ public class HandleSwitchConfiguration extends JavacAnnotationHandler<GenerateDi
     }
 
     private JCBlock generateDispatcherCall(JCMethodDecl dispatcherMethod) {
-        return treeMaker.Block(0, List.of(
+        return treeMaker.Block(0, List.<JCStatement>of(
                 treeMaker.Return(
                         treeMaker.Apply(
                                 null,
