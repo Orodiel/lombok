@@ -1,6 +1,7 @@
 package lombok.javac.handlers;
 
 import com.sun.tools.javac.code.Flags;
+import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.JCTree.JCMethodInvocation;
 import com.sun.tools.javac.tree.JCTree.JCPrimitiveTypeTree;
 import com.sun.tools.javac.tree.JCTree.JCAnnotation;
@@ -14,6 +15,7 @@ import com.sun.tools.javac.tree.JCTree.JCVariableDecl;
 import com.sun.tools.javac.util.List;
 import lombok.core.AST;
 import lombok.core.AnnotationValues;
+import lombok.core.HandlerPriority;
 import lombok.experimental.GenerateDispatcher;
 import lombok.javac.JavacASTAdapter;
 import lombok.javac.JavacAnnotationHandler;
@@ -28,6 +30,7 @@ import java.util.Collection;
 import static lombok.javac.Javac.*;
 import static lombok.javac.handlers.JavacHandlerUtil.*;
 
+@HandlerPriority(value = 60000)
 @ProviderFor(JavacAnnotationHandler.class)
 public class HandleGenerateDispatcher extends JavacAnnotationHandler<GenerateDispatcher> {
     public static final String EVALUATION_METHOD_NAME = "__evaluateSwitch";
@@ -55,10 +58,9 @@ public class HandleGenerateDispatcher extends JavacAnnotationHandler<GenerateDis
         addMethodToClass(hiddenDelegateMethod);
 
         JCMethodDecl dispatcherMethod = setupDispatcherMethod();
-        JCMethodDecl switchEvaluationMethod = findSwitchEvaluationMethod();
-        addSwitchToDispatcher(dispatcherMethod, switchEvaluationMethod, hiddenDelegateMethod);
+        addSwitchToDispatcher(dispatcherMethod, hiddenDelegateMethod);
 
-        publicProxyMethod.body = generateDispatcherCall(dispatcherMethod);
+        publicProxyMethod.body = generateDispatcherCall(publicProxyMethod, dispatcherMethod);
     }
 
     private void assertMethodKind(JavacNode annotationTargetNode) {
@@ -172,23 +174,14 @@ public class HandleGenerateDispatcher extends JavacAnnotationHandler<GenerateDis
         return treeMaker.Throw(expression);
     }
 
-    private JCMethodDecl findSwitchEvaluationMethod() {
-        JCMethodDecl switchEvaluationMethod = findMethodByName(EVALUATION_METHOD_NAME);
-        if (switchEvaluationMethod == null) {
-            annotatedNode.addError("Was expecting to find evaluation method");
-            throw new RuntimeException("Failed to find evaluation method");
-        }
-        return switchEvaluationMethod;
-    }
-
-    private void addSwitchToDispatcher(JCMethodDecl dispatcher, JCMethodDecl evaluationMethod, JCMethodDecl delegate) {
+    private void addSwitchToDispatcher(JCMethodDecl dispatcher, JCMethodDecl delegate) {
         ArrayList<JCStatement> statements = new ArrayList<JCStatement>(dispatcher.body.stats);
         JCStatement throwException = statements.remove(statements.size() - 1);
         String switchName = annotation.switchName();
         String switchVariableName = getSwitchVariableName(switchName);
         JCStatement switchInitialization = findSwitchInitialization(switchVariableName, statements);
         if (switchInitialization == null) {
-            switchInitialization = generateSwitchInitialization(evaluationMethod, switchName, switchVariableName);
+            switchInitialization = generateSwitchInitialization(switchName, switchVariableName);
             statements.add(switchInitialization);
         }
         JCStatement ifEvalStatement = generateSwitchBranch(switchVariableName, annotation.switchValue(), delegate);
@@ -214,10 +207,10 @@ public class HandleGenerateDispatcher extends JavacAnnotationHandler<GenerateDis
         return null;
     }
 
-    private JCStatement generateSwitchInitialization(JCMethodDecl evaluationMethod, String switchName, String variableName) {
+    private JCStatement generateSwitchInitialization(String switchName, String variableName) {
         JCMethodInvocation toggleStateEvaluationInvocation = treeMaker.Apply(
                 List.<JCExpression>nil(),
-                treeMaker.Ident(evaluationMethod.name),
+                treeMaker.Ident(classNode.toName(EVALUATION_METHOD_NAME)),
                 List.<JCExpression>of(treeMaker.Literal(switchName))
         );
 
@@ -237,25 +230,6 @@ public class HandleGenerateDispatcher extends JavacAnnotationHandler<GenerateDis
                 generateEqualityCheck(variableName, targetValue),
                 generateSwitchExecution(targetMethod),
                 null);
-    }
-
-    private JCStatement generateSwitchExecution(JCMethodDecl targetMethod) {
-        JCMethodInvocation targetMethodInvocation = treeMaker.Apply(
-                List.<JCExpression>nil(),
-                treeMaker.Ident(targetMethod.name),
-                generateArgList(targetMethod.params)
-        );
-        if (targetMethod.restype instanceof JCPrimitiveTypeTree &&
-                ((JCPrimitiveTypeTree) targetMethod.restype).getPrimitiveTypeKind() == TypeKind.VOID) {
-            return treeMaker.Block(
-                    0,
-                    List.of(
-                            treeMaker.Exec(targetMethodInvocation),
-                            treeMaker.Return(null)
-                    ));
-        } else {
-            return treeMaker.Return(targetMethodInvocation);
-        }
     }
 
     private JCExpression generateEqualityCheck(String variableName, String value) {
@@ -280,6 +254,29 @@ public class HandleGenerateDispatcher extends JavacAnnotationHandler<GenerateDis
                 treeMaker.Literal(CTC_BOOLEAN, value ? 1 : 0));
     }
 
+    private JCStatement generateSwitchExecution(JCMethodDecl targetMethod) {
+        JCMethodInvocation targetMethodInvocation = treeMaker.Apply(
+                List.<JCExpression>nil(),
+                treeMaker.Ident(targetMethod.name),
+                generateArgList(targetMethod.params)
+        );
+        if (isProcedure(targetMethod)) {
+            return treeMaker.Block(
+                    0,
+                    List.of(
+                            treeMaker.Exec(targetMethodInvocation),
+                            treeMaker.Return(null)
+                    ));
+        } else {
+            return treeMaker.Return(targetMethodInvocation);
+        }
+    }
+
+    private boolean isProcedure(JCMethodDecl targetMethod) {
+        return targetMethod.restype instanceof JCPrimitiveTypeTree &&
+                ((JCPrimitiveTypeTree) targetMethod.restype).getPrimitiveTypeKind() == TypeKind.VOID;
+    }
+
     private List<JCExpression> generateArgList(List<JCVariableDecl> params) {
         ArrayList<JCExpression> result = new ArrayList<JCExpression>();
         for (JCVariableDecl variableDeclaration : params) {
@@ -288,16 +285,20 @@ public class HandleGenerateDispatcher extends JavacAnnotationHandler<GenerateDis
         return List.from(result.toArray(new JCExpression[]{}));
     }
 
-    private JCBlock generateDispatcherCall(JCMethodDecl dispatcherMethod) {
-        return treeMaker.Block(0, List.<JCStatement>of(
-                treeMaker.Return(
-                        treeMaker.Apply(
-                                null,
-                                treeMaker.Ident(dispatcherMethod.name),
-                                generateArgList(dispatcherMethod.params)
-                        )
-                )
-        ));
+    private JCBlock generateDispatcherCall(JCMethodDecl targetMethod, JCMethodDecl dispatcherMethod) {
+        JCMethodInvocation dispatcherInvocation = treeMaker.Apply(
+                null,
+                treeMaker.Ident(dispatcherMethod.name),
+                generateArgList(dispatcherMethod.params)
+        );
+
+        JCStatement publicProxyMethodBody;
+        if (isProcedure(targetMethod)) {
+            publicProxyMethodBody = treeMaker.Exec(dispatcherInvocation);
+        } else {
+            publicProxyMethodBody = treeMaker.Return(dispatcherInvocation);
+        }
+        return treeMaker.Block(0, List.<JCStatement>of(publicProxyMethodBody));
     }
 
     private static class MethodDeclarationFinder extends JavacASTAdapter {

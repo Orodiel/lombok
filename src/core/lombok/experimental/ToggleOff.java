@@ -8,7 +8,7 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.SOURCE)
 @Target(ElementType.METHOD)
 public @interface ToggleOff {
-    String value();
+    String name();
     String groupName() default "";
     boolean removeProxyAnnotations() default false;
     boolean removeDelegateAnnotations() default true;
