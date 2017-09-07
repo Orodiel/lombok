@@ -130,7 +130,7 @@ public class HandleGenerateDispatcher extends JavacAnnotationHandler<GenerateDis
         if (GenerateDispatcher.DEFAULT_GROUP_NAME.equals(groupName)) {
             groupName = annotation.switchName();
         }
-        return "dispatcher_for_" + escapeString(groupName);
+        return "dispatcher_for_" + escapeString(groupName) + "_in_" + classNode.getName();
     }
 
     private String escapeString(String string) {
